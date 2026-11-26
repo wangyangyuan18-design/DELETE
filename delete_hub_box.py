@@ -143,6 +143,9 @@ class DeleteHubBoxPlugin:
             self.timer.stop()
             return
         c = self.current
+        if c.get("phase") == "delete":
+            self._delete_batch()
+            return
         layer = c["layer"]
         kind = c["kind"]
         if kind == "hub":
@@ -201,35 +204,63 @@ class DeleteHubBoxPlugin:
         c = self.current
         layer = c["layer"]
         ids = c["delete_ids"]
-        deleted = 0
-        if ids:
-            was_editable = layer.isEditable()
-            if not was_editable and not layer.startEditing():
-                self.failed = True
-                self.report.append("{}：无法进入编辑状态".format(layer.name()))
-            else:
-                ok = layer.deleteFeatures(ids)
-                if not ok:
-                    self.failed = True
-                    self.report.append("{}：deleteFeatures 失败".format(layer.name()))
-                    if not was_editable:
-                        layer.rollBack()
-                elif not was_editable:
-                    if layer.commitChanges():
-                        deleted = len(ids)
-                    else:
-                        errors = "; ".join(layer.commitErrors())
-                        layer.rollBack()
-                        self.failed = True
-                        self.report.append("{}：提交失败：{}".format(layer.name(), errors))
-                else:
-                    # Existing edit sessions are deliberately left open and uncommitted.
-                    deleted = len(ids)
-        self.report.append("{}：扫描 {}，删除/标记删除 {}".format(
-            layer.name(), c["seen"], deleted if ids else 0))
+        c["delete_cursor"] = 0
+        c["deleted_count"] = 0
+        c["was_editable"] = layer.isEditable()
 
-        # Build polygon index only after SUB BOX Boundary has been scanned
-        # and its matching features have been identified.
+        if ids and not c["was_editable"] and not layer.startEditing():
+            self.failed = True
+            self.report.append("{}：无法进入编辑状态".format(layer.name()))
+            self._after_job()
+            return
+
+        if ids:
+            # Delete in small timer-driven batches; QgsVectorLayer.deleteFeature
+            # respects an existing edit buffer and avoids blocking the UI.
+            c["phase"] = "delete"
+            self.timer.start(1)
+        else:
+            self._after_job()
+
+    def _delete_batch(self):
+        c = self.current
+        layer = c["layer"]
+        ids = c["delete_ids"]
+        stop = min(c["delete_cursor"] + self.BATCH_SIZE, len(ids))
+        while c["delete_cursor"] < stop:
+            fid = ids[c["delete_cursor"]]
+            c["delete_cursor"] += 1
+            try:
+                if layer.deleteFeature(fid):
+                    c["deleted_count"] += 1
+                else:
+                    self.failed = True
+                    self.report.append("{}：要素 FID {} 删除失败".format(layer.name(), fid))
+            except Exception as exc:
+                self.failed = True
+                self.report.append("{}：FID {} 删除异常：{}".format(layer.name(), fid, exc))
+
+        if c["delete_cursor"] < len(ids):
+            return
+
+        if not c["was_editable"]:
+            if layer.commitChanges():
+                pass
+            else:
+                errors = "; ".join(layer.commitErrors())
+                layer.rollBack()
+                self.failed = True
+                self.report.append("{}：提交失败：{}".format(layer.name(), errors))
+                c["deleted_count"] = 0
+        self._after_job()
+
+    def _after_job(self):
+        c = self.current
+        layer = c["layer"]
+        self.report.append("{}：扫描 {}，删除/标记删除 {}".format(
+            layer.name(), c["seen"], c["deleted_count"]))
+
+        # Build polygon index after matching SUB BOX Boundary polygons are captured.
         if c["kind"] == "name" and layer.name() == "SUB BOX Boundary":
             self.polygon_index = QgsSpatialIndex()
             for fid, geom in self.boundary_geometries:
