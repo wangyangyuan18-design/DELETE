@@ -1,0 +1,12 @@
+[general]
+name=DELETE HUB BOX
+qgisMinimumVersion=3.16
+description=Keep selected HUB BOX features and remove associated ODN layers and customer points.
+version=1.0.0
+author=wangyangyuan18-design
+email=
+about=Delete unselected HUB BOX features and their associated ODN features by Name and SUB BOX Boundary spatial coverage.
+category=Vector
+icon=
+experimental=False
+deprecated=False
