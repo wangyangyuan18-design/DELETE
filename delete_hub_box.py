@@ -6,7 +6,7 @@ Large scans are split into timer-driven batches to keep the UI responsive.
 """
 from qgis.PyQt.QtCore import QTimer
 from qgis.PyQt.QtWidgets import QAction, QMessageBox, QProgressDialog
-from qgis.core import QgsProject, QgsFeatureRequest, QgsSpatialIndex, QgsGeometry
+from qgis.core import QgsProject, QgsSpatialIndex, QgsGeometry, QgsFeature
 from qgis.PyQt.QtCore import Qt
 
 
@@ -208,7 +208,6 @@ class DeleteHubBoxPlugin:
                 self.failed = True
                 self.report.append("{}：无法进入编辑状态".format(layer.name()))
             else:
-                ok = layer.dataProvider() if False else True
                 ok = layer.deleteFeatures(ids)
                 if not ok:
                     self.failed = True
@@ -234,7 +233,6 @@ class DeleteHubBoxPlugin:
         if c["kind"] == "name" and layer.name() == "SUB BOX Boundary":
             self.polygon_index = QgsSpatialIndex()
             for fid, geom in self.boundary_geometries:
-                from qgis.core import QgsFeature
                 f = QgsFeature()
                 f.setId(fid)
                 f.setGeometry(geom)
